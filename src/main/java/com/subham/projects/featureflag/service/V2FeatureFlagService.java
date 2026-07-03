@@ -2,10 +2,7 @@ package com.subham.projects.featureflag.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.subham.projects.featureflag.constants.OverrideType;
-import com.subham.projects.featureflag.dto.CreateFFV2RequestDTO;
-import com.subham.projects.featureflag.dto.CreateFeatureFlagRequestDTO;
-import com.subham.projects.featureflag.dto.FeatureFlagCacheDTO;
-import com.subham.projects.featureflag.dto.FeatureFlagResponseDTO;
+import com.subham.projects.featureflag.dto.*;
 import com.subham.projects.featureflag.entity.FeatureFlagEntity;
 import com.subham.projects.featureflag.entity.FeatureFlagUserOverrideEntity;
 import com.subham.projects.featureflag.entity.FeatureFlagV2Entity;
@@ -19,6 +16,9 @@ import org.apache.logging.log4j.util.Strings;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Objects;
 import java.util.Optional;
@@ -69,31 +69,78 @@ public class V2FeatureFlagService {
 
     }
 
-    public FeatureFlagResponseDTO getFeatureFlag(String flagName){
+    public FeatureFlagResponseDTO getFeatureFlag(FeatureFlagRequestDTO requestDTO){
         try{
-            if(Strings.isBlank(flagName)){
-                throw new RuntimeException("Flag is not present");
-            }
-            Object redisCacheValue = redisTemplate.opsForValue().get(flagName);
+
+            Object redisCacheValue = redisTemplate.opsForValue().get(requestDTO.getFlagName());
             if(!Objects.isNull(redisCacheValue)){
                 log.info("Fetching value from redis cache");
-                FeatureFlagV2Entity entity =  objectMapper.convertValue(redisCacheValue,
-                        FeatureFlagV2Entity.class);
+                FeatureFlagCacheDTO entity =  objectMapper.convertValue(redisCacheValue,
+                        FeatureFlagCacheDTO.class);
                 return prepareFeatureFlagResponse(entity);
             }
             Optional<FeatureFlagV2Entity> entity = featureFlagRepository.findByFeatureFlagName(flagName);
             FeatureFlagV2Entity featureFlag = entity.orElseThrow(()-> new RuntimeException("Flag is not present"));
-            return prepareFeatureFlagResponse(featureFlag);
+            FeatureFlagCacheDTO cacheDTO = Fe
+            Boolean flagEnabled =  prepareFeatureFlagResponse(featureFlag, requestDTO.getUserId());
+            return FeatureFlagResponseDTO.builder()
+                    .flagEnabled(flagEnabled)
+                    .build();
 
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
 
-    private FeatureFlagResponseDTO prepareFeatureFlagResponse(FeatureFlagV2Entity featureFlag){
-        return FeatureFlagResponseDTO.builder()
-                .flagValue(featureFlag.getFeatureFlagEnabled())
-                .build();
+    private Boolean prepareFeatureFlagResponse(FeatureFlagCacheDTO featureFlag, String userId){
+        if (!featureFlag.isEnabled()) {
+            return false;
+        }
+
+        // Explicit deny
+        if (featureFlag.getDenyUsers() != null &&
+                featureFlag.getDenyUsers().contains(userId)) {
+            return false;
+        }
+
+        // Explicit allow
+        if (featureFlag.getAllowUsers() != null &&
+                featureFlag.getAllowUsers().contains(userId)) {
+            return true;
+        }
+
+        // Full rollout
+        if (featureFlag.getRolloutPercentage() >= 100) {
+            return true;
+        }
+
+        // No rollout
+        if (featureFlag.getRolloutPercentage() <= 0) {
+            return false;
+        }
+
+        int bucket = getBucket(userId, featureFlag.getSalt());
+
+        return bucket < featureFlag.getRolloutPercentage();
+    }
+
+    private int getBucket(String userId, String salt) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] hash = md.digest((userId + ":" + salt)
+                    .getBytes(StandardCharsets.UTF_8));
+
+            int value =
+                    ((hash[0] & 0xFF) << 24)
+                            | ((hash[1] & 0xFF) << 16)
+                            | ((hash[2] & 0xFF) << 8)
+                            | (hash[3] & 0xFF);
+
+            return Math.floorMod(value, 100);
+
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("Unable to compute feature bucket", e);
+        }
     }
 
     private void insertOverrideUser(String userId, OverrideType overrideType, FeatureFlagV2Entity entity){

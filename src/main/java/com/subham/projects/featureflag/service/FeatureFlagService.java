@@ -62,7 +62,7 @@ public class FeatureFlagService {
 
     private FeatureFlagResponseDTO prepareFeatureFlagResponse(FeatureFlagEntity featureFlag){
         return FeatureFlagResponseDTO.builder()
-                .flagValue(featureFlag.getFeatureFlagEnabled())
+                .flagEnabled(featureFlag.getFeatureFlagEnabled())
                 .build();
     }
 

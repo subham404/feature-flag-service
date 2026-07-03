@@ -11,8 +11,5 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class FeatureFlagResponseDTO {
 
-    private Boolean flagValue;
-    private String flagName;
-    private Boolean isActive;
-    private String flagDesc;
+    private Boolean flagEnabled;
 }

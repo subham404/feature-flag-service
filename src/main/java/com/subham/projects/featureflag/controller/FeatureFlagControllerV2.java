@@ -2,6 +2,7 @@ package com.subham.projects.featureflag.controller;
 
 import com.subham.projects.featureflag.dto.CreateFFV2RequestDTO;
 import com.subham.projects.featureflag.dto.CreateFeatureFlagRequestDTO;
+import com.subham.projects.featureflag.dto.FeatureFlagRequestDTO;
 import com.subham.projects.featureflag.dto.FeatureFlagResponseDTO;
 import com.subham.projects.featureflag.service.FeatureFlagService;
 import com.subham.projects.featureflag.service.V2FeatureFlagService;
@@ -24,9 +25,9 @@ public class FeatureFlagControllerV2 {
     }
 
     @GetMapping("/fetch")
-    public FeatureFlagResponseDTO getFeatureFlag(@RequestParam("flagName") String flagName){
-        log.info("Fetching flag value for feature flag: {}", flagName);
-        return featureFlagService.getFeatureFlag(flagName);
+    public FeatureFlagResponseDTO getFeatureFlag(@ModelAttribute("flagName") FeatureFlagRequestDTO requestDTO){
+        log.info("Fetching flag value for feature flag: {}", requestDTO.getFlagName());
+        return featureFlagService.getFeatureFlag(requestDTO);
     }
 
 }

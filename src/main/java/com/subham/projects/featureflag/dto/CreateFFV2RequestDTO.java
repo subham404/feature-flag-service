@@ -1,5 +1,6 @@
 package com.subham.projects.featureflag.dto;
 
+import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.NonNull;
@@ -10,11 +11,11 @@ import java.util.Set;
 @Data
 @NoArgsConstructor
 public class CreateFFV2RequestDTO {
-    @NonNull
+    @NotNull
     private String flagName;
-    @NonNull
+    @NotNull
     private Boolean flagEnabled;
-    @NonNull
+    @NotNull
     private String flagDesc;
 
     Set<String> allowedUsers;

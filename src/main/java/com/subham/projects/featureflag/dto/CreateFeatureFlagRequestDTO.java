@@ -1,15 +1,16 @@
 package com.subham.projects.featureflag.dto;
 
+import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 import lombok.NonNull;
 
 @Data
 public class CreateFeatureFlagRequestDTO {
 
-    @NonNull
+    @NotNull
     private String flagName;
-    @NonNull
+    @NotNull
     private Boolean flagValue;
-    @NonNull
+    @NotNull
     private String flagDesc;
 }
