@@ -77,11 +77,16 @@ public class V2FeatureFlagService {
                 log.info("Fetching value from redis cache");
                 FeatureFlagCacheDTO entity =  objectMapper.convertValue(redisCacheValue,
                         FeatureFlagCacheDTO.class);
-                return prepareFeatureFlagResponse(entity);
+                boolean isEnabled = prepareFeatureFlagResponse(entity, requestDTO.getUserId());
+                return FeatureFlagResponseDTO.builder()
+                        .flagEnabled(isEnabled)
+                        .build();
             }
-            Optional<FeatureFlagV2Entity> entity = featureFlagRepository.findByFeatureFlagName(flagName);
+            Optional<FeatureFlagV2Entity> entity = featureFlagRepository.findByFeatureFlagName(requestDTO.getFlagName());
             FeatureFlagV2Entity featureFlag = entity.orElseThrow(()-> new RuntimeException("Flag is not present"));
-            FeatureFlagCacheDTO cacheDTO = Fe
+            FeatureFlagCacheDTO cacheDTO = FeatureFlagCacheDTO.builder()
+
+                    .build();
             Boolean flagEnabled =  prepareFeatureFlagResponse(featureFlag, requestDTO.getUserId());
             return FeatureFlagResponseDTO.builder()
                     .flagEnabled(flagEnabled)
