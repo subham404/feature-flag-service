@@ -9,7 +9,6 @@ import java.util.List;
 import java.util.Set;
 
 @Data
-@NoArgsConstructor
 public class CreateFFV2RequestDTO {
     @NotNull
     private String flagName;

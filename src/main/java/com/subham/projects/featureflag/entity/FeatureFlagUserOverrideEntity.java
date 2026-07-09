@@ -50,6 +50,9 @@ public class FeatureFlagUserOverrideEntity {
     @Column(name = "user_id", nullable = false, length = 100)
     private String userId;
 
+    @Column(name = "is_active", nullable = false)
+    private Boolean isActive;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "override_type", nullable = false, length = 10)
     private OverrideType overrideType;

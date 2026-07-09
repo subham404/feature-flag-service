@@ -20,14 +20,14 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
-import java.util.Objects;
-import java.util.Optional;
+import java.util.*;
+import java.util.stream.Collectors;
 
 import static com.subham.projects.featureflag.constants.OverrideType.ALLOW;
 import static com.subham.projects.featureflag.constants.OverrideType.DENY;
 
-@Service
 @Slf4j
+@Service
 @RequiredArgsConstructor
 public class V2FeatureFlagService {
 
@@ -66,7 +66,6 @@ public class V2FeatureFlagService {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
-
     }
 
     public FeatureFlagResponseDTO getFeatureFlag(FeatureFlagRequestDTO requestDTO){
@@ -84,10 +83,24 @@ public class V2FeatureFlagService {
             }
             Optional<FeatureFlagV2Entity> entity = featureFlagRepository.findByFeatureFlagName(requestDTO.getFlagName());
             FeatureFlagV2Entity featureFlag = entity.orElseThrow(()-> new RuntimeException("Flag is not present"));
+            List<FeatureFlagUserOverrideEntity> overrideUserList = featureFlagUserOverrideRepository.findActiveOverridesByFeatureFlagId(featureFlag.getId());
+            Set<String> allowedList = overrideUserList.stream()
+                    .filter( overrideUserEntity -> overrideUserEntity.getOverrideType() == ALLOW)
+                    .map(FeatureFlagUserOverrideEntity::getUserId)
+                    .collect(Collectors.toSet());
+            Set<String> deniedList = overrideUserList.stream()
+                    .filter( overrideUserEntity -> overrideUserEntity.getOverrideType() == ALLOW)
+                    .map(FeatureFlagUserOverrideEntity::getUserId)
+                    .collect(Collectors.toSet());
             FeatureFlagCacheDTO cacheDTO = FeatureFlagCacheDTO.builder()
-
+                    .enabled(featureFlag.getFeatureFlagEnabled())
+                    .salt(featureFlag.getSaltValue())
+                    .allowUsers(allowedList)
+                    .denyUsers(deniedList)
+                    .rolloutPercentage(featureFlag.getRolloutPercentage())
                     .build();
-            Boolean flagEnabled =  prepareFeatureFlagResponse(featureFlag, requestDTO.getUserId());
+            redisTemplate.opsForValue().set(requestDTO.getFlagName(), cacheDTO);
+            Boolean flagEnabled =  prepareFeatureFlagResponse(cacheDTO, requestDTO.getUserId());
             return FeatureFlagResponseDTO.builder()
                     .flagEnabled(flagEnabled)
                     .build();
@@ -97,6 +110,72 @@ public class V2FeatureFlagService {
         }
     }
 
+    @Transactional
+    public void updateFeatureFlag(UpdateFeatureFlagRequestDTO request) {
+        try{
+            Optional<FeatureFlagV2Entity> entity = featureFlagRepository.findByFeatureFlagName(request.getFlagName());
+            FeatureFlagV2Entity featureFlag = entity.orElseThrow(() -> new RuntimeException("Flag is not present"));
+            if (request.getFlagEnabled() != null) {
+                featureFlag.setFeatureFlagEnabled(request.getFlagEnabled());
+            }
+            if (request.getRolloutPercentage() != null && isValidPercentage(request.getRolloutPercentage())) {
+                featureFlag.setRolloutPercentage(request.getRolloutPercentage());
+            }
+            featureFlagRepository.save(featureFlag);
+            if(request.getAllowUsers()!= null || request.getDenyUsers()!=null){
+                updateUserOverrides(request, featureFlag);
+            }
+            updateCache(request, featureFlag);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+    private void updateCache(UpdateFeatureFlagRequestDTO request, FeatureFlagV2Entity featureFlag){
+        FeatureFlagCacheDTO cacheDTO = FeatureFlagCacheDTO.builder()
+                .enabled(featureFlag.getFeatureFlagEnabled())
+                .salt(featureFlag.getSaltValue())
+                .allowUsers(request.getAllowUsers())
+                .denyUsers(request.getDenyUsers())
+                .rolloutPercentage(featureFlag.getRolloutPercentage())
+                .build();
+        redisTemplate.opsForValue().set(featureFlag.getFeatureFlagName(), cacheDTO);
+    }
+
+    private boolean isValidPercentage(int percentage){
+        return percentage>=0 && percentage<=100;
+    }
+
+    private void updateUserOverrides(UpdateFeatureFlagRequestDTO request, FeatureFlagV2Entity featureFlag){
+        List<FeatureFlagUserOverrideEntity> overrideUserList = featureFlagUserOverrideRepository.findActiveOverridesByFeatureFlagId(featureFlag.getId());
+        List<FeatureFlagUserOverrideEntity> updatedList = overrideUserList.stream()
+                .filter(overrideUserEntity -> !(request.getDenyUsers().contains(overrideUserEntity.getUserId())
+                        || request.getAllowUsers().contains(overrideUserEntity.getUserId())))
+                .collect(Collectors.toCollection(ArrayList::new));
+        updatedList.forEach(overrideUserEntity -> overrideUserEntity.setIsActive(false));
+        updatedList.addAll(addNewOverrideUsers(request.getAllowUsers(),overrideUserList, ALLOW,featureFlag));
+        updatedList.addAll(addNewOverrideUsers(request.getDenyUsers(),overrideUserList, DENY,featureFlag));
+        featureFlagUserOverrideRepository.saveAll(updatedList);
+    }
+
+    private List<FeatureFlagUserOverrideEntity> addNewOverrideUsers(
+            Set<String> users, List<FeatureFlagUserOverrideEntity> overrideEntities,
+            OverrideType overrideType, FeatureFlagV2Entity featureFlag) {
+
+        Set<String> alreadyActiveWithSameType = overrideEntities.stream()
+                .filter(e -> e.getOverrideType() == overrideType)
+                .map(FeatureFlagUserOverrideEntity::getUserId)
+                .collect(Collectors.toSet());
+
+        return users.stream()
+                .filter(user -> !alreadyActiveWithSameType.contains(user))
+                .map(user -> FeatureFlagUserOverrideEntity.builder()
+                        .featureFlag(featureFlag)
+                        .overrideType(overrideType)
+                        .userId(user)
+                        .isActive(true)
+                        .build())
+                .toList();
+    }
     private Boolean prepareFeatureFlagResponse(FeatureFlagCacheDTO featureFlag, String userId){
         if (!featureFlag.isEnabled()) {
             return false;
@@ -153,7 +232,7 @@ public class V2FeatureFlagService {
         overrideEntity.setFeatureFlag(entity);
         overrideEntity.setOverrideType(overrideType);
         overrideEntity.setUserId(userId);
-
+        overrideEntity.setIsActive(true);
         featureFlagUserOverrideRepository.save(overrideEntity);
     }
 
